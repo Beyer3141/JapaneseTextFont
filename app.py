@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+import os, streamlit as st
+st.write("📂 Files in project root:", os.listdir("."))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
