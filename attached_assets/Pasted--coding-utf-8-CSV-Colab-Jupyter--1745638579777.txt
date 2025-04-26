@@ -1,0 +1,208 @@
+# -*- coding: utf-8 -*-
+# 自動評価による重回帰分析 & クラスタリングスクリプト
+# - CSVアップロード（Colab/Jupyterまたはファイル選択ウィジェット）
+# - 日本語フォント設定（Colab専用）
+# - 通貨列の数値化
+# - カテゴリ変数（勤務地, キャンペーン名）のダミー化
+# - 数値変数の対数変換（クリック数, 費用）\# - クリック率高 & 応募率低の原稿検出
+# - CTR vs AR 散布図（タイトルラベル付き） & KMeansクラスタリング
+# - 全組合せによる最良モデル探索
+# - VIF（多重共線性）の算出
+# - 診断プロット（残差 vs 予測値, QQプロット)
+# - テストケース付き
+
+import os
+import sys
+import glob
+import io
+import time
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import statsmodels.api as sm
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.graphics.gofplots import qqplot
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.cluster import KMeans
+import itertools
+import warnings
+
+# Jupyter用ファイルアップロードウィジェット
+try:
+    from google.colab import files as colab_files
+    HAS_COLAB = True
+except ImportError:
+    HAS_COLAB = False
+try:
+    from ipywidgets import FileUpload
+    from IPython.display import display
+    HAS_WIDGET = True
+except ImportError:
+    HAS_WIDGET = False
+
+# --- 警告抑制（日本語フォント関連の警告非表示）
+warnings.filterwarnings("ignore", message=".*findfont: Generic family.*", module="matplotlib.font_manager")
+warnings.filterwarnings("ignore", message=".*Glyph.*missing.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*Font family.*not found.*", module="matplotlib.font_manager")
+
+# --- 日本語フォント設定（Colab専用） ---
+print("日本語フォントをインストールしています・・・")
+# Colab環境でIPAフォントをインストール
+if HAS_COLAB:
+    get_ipython().system('apt-get -qq update')
+    get_ipython().system('apt-get -qq install -y fonts-ipafont-gothic fonts-ipafont-mincho')
+    get_ipython().system('fc-cache -f -v')
+    
+    # フォントの設定
+    import matplotlib as mpl
+    from matplotlib import font_manager
+    
+    # フォントのパスを直接指定
+    font_path = '/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf'
+    if os.path.exists(font_path):
+        # フォントを直接追加
+        font_manager.fontManager.addfont(font_path)
+        
+        # フォントの設定
+        plt.rcParams['font.family'] = 'IPAGothic'
+        plt.rcParams['mathtext.fontset'] = 'stix'
+        plt.rcParams['font.size'] = 12
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        print("フォントの設定が完了しました。")
+    else:
+        print("フォントファイルが見つかりません:", font_path)
+else:
+    print("Colab環境ではありません。")
+
+# --- CSV読み込み ---
+def load_csv(path=None, encoding='utf-8'):
+    if path and os.path.isfile(path):
+        return pd.read_csv(path, encoding=encoding)
+    if HAS_COLAB:
+        print("CSVファイルをアップロードしてください（UTF-8対応）")
+        uploaded = colab_files.upload()
+        fname = next(iter(uploaded.keys()))
+        return pd.read_csv(fname, encoding=encoding)
+    if HAS_WIDGET:
+        print("ローカル環境: CSVファイルを選択してください")
+        uploader = FileUpload(accept='.csv', multiple=False)
+        display(uploader)
+        while not uploader.value:
+            time.sleep(0.5)
+        name = list(uploader.value.keys())[0]
+        content = uploader.value[name]['content']
+        return pd.read_csv(io.BytesIO(content), encoding=encoding)
+    for d in [os.getcwd(), '/mnt/data']:
+        for f in glob.glob(os.path.join(d, '*.csv')):
+            return pd.read_csv(f, encoding=encoding)
+    raise FileNotFoundError('CSVファイルが見つかりません')
+
+# --- クリック率高 & 応募率低の原稿検出 ---
+def detect_problem_ads(df):
+    df2 = df.copy()
+    for col, new_col in [('クリック率', 'CTR'), ('応募率', 'AR')]:
+        if col in df2.columns:
+            df2[new_col] = df2[col].astype(str).str.rstrip('%').astype(float) / 100
+    if 'CTR' in df2 and 'AR' in df2:
+        ctr_thr = df2['CTR'].quantile(0.75)
+        ar_thr = df2['AR'].quantile(0.25)
+        anomalies = df2[(df2['CTR'] > ctr_thr) & (df2['AR'] < ar_thr)]
+        print(f"--- クリック率 > {ctr_thr:.2%} & 応募率 < {ar_thr:.2%} の原稿 ---")
+        from IPython.display import display
+        if anomalies.empty:
+            print("該当なし。")
+        else:
+            display(anomalies[['求人番号', '求人タイトル', 'CTR', 'AR']])
+        return anomalies
+    print("CTRまたはAR列が不足しています。")
+    return pd.DataFrame()
+
+# --- 前処理 ---
+def preprocess(df):
+    df = df.copy()
+    for col in df.columns:
+        if df[col].dtype == object and df[col].astype(str).str.contains('￥|,').any():
+            df[col] = pd.to_numeric(df[col].replace('[￥,]', '', regex=True), errors='coerce')
+    for c in ['勤務地', 'キャンペーン名']:
+        if c in df.columns:
+            df = pd.get_dummies(df, columns=[c], drop_first=True)
+    for c in ['クリック数', '費用']:
+        if c in df.columns:
+            df[c] = np.log1p(df[c])
+    return df
+
+# --- VIF計算 ---
+def compute_vif(X):
+    dfv = pd.DataFrame({'feature': X.columns})
+    dfv['VIF'] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
+    from IPython.display import display
+    display(dfv)
+    return dfv
+
+# --- 回帰探索 ---
+def find_best_regression(df, target_col='応募数', test_size=0.2, random_state=42):
+    dfp = preprocess(df)
+    num = dfp.select_dtypes(include=[np.number]).dropna()
+    if target_col not in num.columns:
+        raise KeyError(f"{target_col}がない")
+    excl = ['アクション数']
+    feats = [c for c in num.columns if c != target_col and c not in excl]
+    y = num[target_col]
+    X = num[feats]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+    best_r2, best_feats, best_pred = -np.inf, None, None
+    for k in range(1, len(feats) + 1):
+        for combo in itertools.combinations(feats, k):
+            model = LinearRegression().fit(X_train[list(combo)], y_train)
+            pred = model.predict(X_test[list(combo)])
+            r = r2_score(y_test, pred)
+            if r > best_r2:
+                best_r2, best_feats, best_pred = r, combo, pred
+    ols = sm.OLS(y, sm.add_constant(X[list(best_feats)])).fit()
+    return best_feats, best_r2, ols, X_test[list(best_feats)], y_test, best_pred
+
+# --- 診断プロット ---
+def plot_diagnostics(ols_model, X_test, y_test, y_pred):
+    print("=== VIF ===")
+    compute_vif(X_test)
+    residuals = y_test - y_pred
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.scatter(y_pred, residuals)
+    ax.axhline(0, linestyle='--', color='red')
+    ax.set(xlabel='Predicted', ylabel='Residuals', title='Residuals vs Predicted')
+    plt.tight_layout(); plt.show()
+    qqplot(residuals, line='s')
+    plt.title('QQ Plot of Residuals')
+    plt.tight_layout(); plt.show()
+
+# --- テスト ---
+def test_preprocess():
+    df = pd.DataFrame({
+        '応募数': [1, 2],
+        '勤務地': ['A', 'B'],
+        'キャンペーン名': ['X', 'Y'],
+        'クリック数': [0, 10],
+        '費用': ['￥1,000', '￥2,000']
+    })
+    dp = preprocess(df)
+    assert '勤務地_B' in dp.columns
+    assert 'キャンペーン名_Y' in dp.columns
+    assert np.all(dp['クリック数'] == np.log1p([0, 10]))
+    assert np.allclose(dp['費用'], np.log1p([1000, 2000]))
+    print('test_preprocess OK')
+
+# --- メイン実行 ---
+def main():
+    df = load_csv()
+    print(f"データ読み込み完了: 行数={df.shape[0]}, 列数={df.shape[1]}")
+    detect_problem_ads(df)
+    feats, r2, ols_model, X_test, y_test, y_pred = find_best_regression(df)
+    print(f"最適回帰モデルの特徴量: {feats}, R2: {r2:.3f}")
+    plot_diagnostics(ols_model, X_test, y_test, y_pred)
+
+if __name__ == '__main__':
+    main()
