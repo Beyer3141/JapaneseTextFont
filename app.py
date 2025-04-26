@@ -51,23 +51,74 @@ def generate_analysis_report(
     report.append(f"- 対象レコード数: {df.shape[0]}件")
     report.append(f"- 対象項目数: {df.shape[1]}項目")
     
-    # 1. 問題のある広告
-    report.append("\n## 1. クリック率高・応募率低の原稿分析")
-    if not problem_ads.empty:
-        report.append(f"クリック率が高いにも関わらず応募率が低い原稿が{len(problem_ads)}件検出されました。")
-        report.append("これらの原稿は、ユーザーの興味を引くものの、実際に応募に至らないという問題があります。")
-        report.append("原因として考えられるのは以下の点です：")
-        report.append("- 広告内容と実際の求人内容の不一致")
-        report.append("- 応募プロセスの複雑さや使いづらさ")
-        report.append("- 給与・待遇などの条件が期待を下回っている")
-        if '求人タイトル' in problem_ads.columns:
-            titles = problem_ads['求人タイトル'].tolist()
-            if len(titles) > 3:
-                titles = titles[:3] + ["...他"]
-            report.append(f"問題の原稿例: {', '.join(titles)}")
+    # 1. 改善が必要な原稿と優良広告の分析
+    report.append("\n## 1. 広告パフォーマンス分析")
+    
+    if 'CTR' in df.columns and 'AR' in df.columns and '求人タイトル' in df.columns:
+        ctr_mean = df['CTR'].mean()
+        ar_mean = df['AR'].mean()
+        
+        # 4つの象限に分類
+        high_ctr_high_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] > ar_mean)]
+        high_ctr_low_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] <= ar_mean)]
+        low_ctr_high_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] > ar_mean)]
+        low_ctr_low_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] <= ar_mean)]
+        
+        # 優良広告（改善優先度低）
+        report.append("\n### 1.1 優良広告（特徴なし・改善優先度低）")
+        if not high_ctr_high_ar.empty:
+            report.append(f"クリック率と応募率がともに平均以上の原稿が{len(high_ctr_high_ar)}件あります。")
+            report.append("これらの原稿は優れたパフォーマンスを示しており、現時点での改善優先度は低いと判断されます。")
+            report.append("特徴:")
+            report.append("- 広告内容と求人内容の一致度が高い")
+            report.append("- ターゲットユーザーに適切にアピールしている")
+            report.append("- 応募プロセスが最適化されている")
+            
+            if '求人タイトル' in high_ctr_high_ar.columns:
+                titles = high_ctr_high_ar['求人タイトル'].tolist()
+                if len(titles) > 5:
+                    titles = titles[:5] + ["...他"]
+                report.append(f"優良広告の例: {', '.join(titles)}")
+        else:
+            report.append("クリック率と応募率がともに平均以上の原稿はありませんでした。すべての原稿に何らかの改善の余地があります。")
+        
+        # 問題のある広告（高CTR、低AR）
+        report.append("\n### 1.2 内容改善が必要な広告（高CTR・低AR）")
+        if not high_ctr_low_ar.empty:
+            report.append(f"クリック率が高いにも関わらず応募率が低い原稿が{len(high_ctr_low_ar)}件検出されました。")
+            report.append("これらの原稿は、ユーザーの興味を引くものの、実際に応募に至らないという問題があります。")
+            report.append("原因として考えられるのは以下の点です：")
+            report.append("- 広告内容と実際の求人内容の不一致")
+            report.append("- 応募プロセスの複雑さや使いづらさ")
+            report.append("- 給与・待遇などの条件が期待を下回っている")
+            
+            if '求人タイトル' in high_ctr_low_ar.columns:
+                titles = high_ctr_low_ar['求人タイトル'].tolist()
+                if len(titles) > 3:
+                    titles = titles[:3] + ["...他"]
+                report.append(f"内容改善が必要な原稿例: {', '.join(titles)}")
+        else:
+            report.append("クリック率高・応募率低の原稿は検出されませんでした。")
+            
+        # タイトル改善が必要な広告（低CTR、高AR）
+        report.append("\n### 1.3 タイトル改善が必要な広告（低CTR・高AR）")
+        if not low_ctr_high_ar.empty:
+            report.append(f"クリック率が低いにも関わらず応募率が高い原稿が{len(low_ctr_high_ar)}件検出されました。")
+            report.append("これらの原稿は、ユーザーが広告をクリックする確率は低いものの、クリックしたユーザーが応募する確率が高いという特徴があります。")
+            report.append("改善のポイント:")
+            report.append("- 広告タイトルをより魅力的にする")
+            report.append("- ターゲットユーザーの関心を引くキーワードを活用する")
+            report.append("- 広告の表示位置や表示回数を最適化する")
+            
+            if '求人タイトル' in low_ctr_high_ar.columns:
+                titles = low_ctr_high_ar['求人タイトル'].tolist()
+                if len(titles) > 3:
+                    titles = titles[:3] + ["...他"]
+                report.append(f"タイトル改善が必要な原稿例: {', '.join(titles)}")
+        else:
+            report.append("クリック率低・応募率高の原稿は検出されませんでした。")
     else:
-        report.append("クリック率高・応募率低の原稿は検出されませんでした。")
-        report.append("広告のクリック率と応募率のバランスが取れていると言えます。")
+        report.append("クリック率(CTR)または応募率(AR)のデータが不足しているため、詳細な分析ができません。")
     
     # 2. クラスタリング分析
     report.append("\n## 2. クラスタリング分析")
@@ -110,6 +161,23 @@ def generate_analysis_report(
                     report.append("評価: 効率的なグループです。クリック率は低いものの、クリックした人の応募率が高く、ターゲットが絞られていると言えます。広告のリーチを拡大することで効果が高まる可能性があります。")
                 else:
                     report.append("評価: 全体的な見直しが必要なグループです。クリック率と応募率の両方が低く、広告の魅力と求人内容の両方を改善する必要があります。")
+                    
+                # クラスタに属する原稿タイトルの取得（グループ化したデータから）
+                if '求人タイトル' in df.columns:
+                    # グループ化データからマッチするタイトルを取得
+                    grouped_titles = []
+                    cluster_original_titles = df_cluster[df_cluster['cluster'] == i]['求人タイトル'].tolist()
+                    
+                    for title in set(cluster_original_titles):  # 重複を排除
+                        if title in df['求人タイトル'].values:
+                            grouped_titles.append(title)
+                    
+                    if grouped_titles:
+                        report.append("\n**このクラスタの代表的な原稿タイトル:**")
+                        for idx, title in enumerate(grouped_titles[:5]):  # 最初の5件のみ表示
+                            report.append(f"{idx+1}. {title}")
+                        if len(grouped_titles) > 5:
+                            report.append(f"...他 {len(grouped_titles)-5}件")
             except:
                 report.append(f"\nクラスタ{i+1}のデータが不足しています。")
     else:
@@ -203,7 +271,7 @@ def generate_analysis_report(
     return "\n".join(report)
 
 def main():
-    st.title("求人広告データ分析ツール")
+    st.title("求人ボックス広告分析")
     st.write("CSVファイルをアップロードして求人広告データを分析します。")
     
     # サイドバーの設定
@@ -335,16 +403,21 @@ def main():
                 except Exception as e:
                     st.error(f"分析中にエラーが発生しました: {str(e)}")
                 
-                # 1. クリック率高 & 応募率低の原稿検出（既存の検出方法も残す）
-                with st.expander("クリック率高 & 応募率低の原稿検出（従来の方法）"):
-                    problem_ads = detect_problem_ads(df_grouped)
-                    
-                    if not problem_ads.empty:
-                        st.write("以下の原稿はクリック率が高いにも関わらず応募率が低い傾向があります（従来の分析方法では）:")
-                        st.dataframe(problem_ads)
-                        st.info("これらの原稿は、ユーザーの興味を引くものの、実際には応募に結びついていません。内容の見直しを検討してください。")
+                # 特徴なし（改善の優先度は低い）の原稿を表示
+                with st.expander("特徴なし（改善の優先度は低い）の原稿"):
+                    if 'CTR' in df_grouped.columns and 'AR' in df_grouped.columns and '求人タイトル' in df_grouped.columns:
+                        # 高CTR・高ARの原稿（特徴なし・改善優先度低）
+                        normal_ads = high_ctr_high_ar
+                        
+                        if not normal_ads.empty:
+                            st.write(f"以下の{len(normal_ads)}件の原稿は平均以上のパフォーマンスを示しており、現時点での改善優先度は低いと判断されます:")
+                            for idx, row in normal_ads.iterrows():
+                                st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                            st.success("これらの原稿は高いクリック率と高い応募率を両立しています。広告内容と求人内容の一致度が高く、ユーザーに適切にアピールできています。")
+                        else:
+                            st.warning("クリック率と応募率が両方とも平均以上の原稿はありませんでした。すべての原稿に何らかの改善の余地があります。")
                     else:
-                        st.success("クリック率高 & 応募率低の原稿は検出されませんでした。広告と内容のバランスが取れていると言えます。")
+                        st.error("必要なデータ（CTR、AR、求人タイトル）が不足しています。")
             
             with tab2:    
                 # 2. CTR vs AR 散布図 & KMeansクラスタリング
@@ -390,14 +463,33 @@ def main():
                             st.info(f"**クラスタ{i+1}**: クリック率{ctr_mean:.2%}({ctr_level})、応募率{ar_mean:.2%}({ar_level}) - {evaluation}")
                             st.markdown(f"**改善提案**: {advice}")
                             
-                            # クラスタに属する原稿のタイトルを表示
+                            # クラスタに属する原稿のタイトル（元データとグループ化したデータの両方）を表示
                             if '求人タイトル' in df_cluster.columns:
+                                # 元データのクラスタに属するタイトル
                                 cluster_titles = df_cluster[df_cluster['cluster'] == i]['求人タイトル'].tolist()
+                                
+                                # グループ化データからマッチするタイトルを取得（重複なし）
+                                grouped_titles = []
+                                if '求人タイトル' in df_grouped.columns:
+                                    for title in set(cluster_titles):  # 重複を排除
+                                        if title in df_grouped['求人タイトル'].values:
+                                            grouped_titles.append(title)
+                                
                                 if cluster_titles:
-                                    with st.expander(f"クラスタ{i+1}に属する原稿 ({len(cluster_titles)}件)"):
-                                        st.write("このクラスタに属する原稿タイトル:")
-                                        for idx, title in enumerate(cluster_titles):
-                                            st.write(f"{idx+1}. {title}")
+                                    with st.expander(f"クラスタ{i+1}に属する原稿 ({len(cluster_titles)}件)", expanded=True):
+                                        # まずグループ化したデータから取得したタイトルを表示
+                                        if grouped_titles:
+                                            st.write("**このクラスタのグループ化された代表的な原稿タイトル:**")
+                                            for idx, title in enumerate(grouped_titles):
+                                                st.write(f"{idx+1}. {title}")
+                                            
+                                            # 区切り線
+                                            st.markdown("---")
+                                            
+                                        # 次に元データのすべてのタイトルを表示（折りたたみ可能）
+                                        with st.expander("このクラスタに属するすべての原稿タイトル（重複あり）"):
+                                            for idx, title in enumerate(cluster_titles):
+                                                st.write(f"{idx+1}. {title}")
                         except Exception as e:
                             st.warning(f"クラスタ{i+1}のデータ処理中にエラーが発生しました: {str(e)}")
                     
