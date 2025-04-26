@@ -70,15 +70,27 @@ def generate_analysis_report(
     
     # 2. クラスタリング分析
     report.append("\n## 2. クラスタリング分析")
-    if not df_cluster.empty:
-        n_clusters = len(cluster_stats.index.levels[0])
+    if not df_cluster.empty and 'cluster' in df_cluster.columns:
+        # クラスタの数を取得（MultiIndexの場合とフラットなIndexの場合の両方に対応）
+        if hasattr(cluster_stats.index, 'levels'):
+            n_clusters = len(cluster_stats.index.levels[0])
+        else:
+            n_clusters = len(df_cluster['cluster'].unique())
+            
         report.append(f"クリック率(CTR)と応募率(AR)に基づいて、{n_clusters}つのクラスタに分類しました。")
         
         # 各クラスタの特徴を抽出
         for i in range(n_clusters):
             try:
-                ctr_mean = cluster_stats.loc[i, ('CTR', 'mean')]
-                ar_mean = cluster_stats.loc[i, ('AR', 'mean')]
+                # MultiIndexの場合
+                if hasattr(cluster_stats.index, 'levels'):
+                    ctr_mean = cluster_stats.loc[i, ('CTR', 'mean')]
+                    ar_mean = cluster_stats.loc[i, ('AR', 'mean')]
+                # フラットなIndexの場合
+                else:
+                    cluster_data = df_cluster[df_cluster['cluster'] == i]
+                    ctr_mean = cluster_data['CTR'].mean()
+                    ar_mean = cluster_data['AR'].mean()
                 
                 # クラスタの特徴づけ
                 ctr_level = "高い" if ctr_mean > df_cluster['CTR'].mean() else "低い"
@@ -147,12 +159,22 @@ def generate_analysis_report(
     if not problem_ads.empty:
         report.append("1. クリック率が高く応募率が低い広告の内容を見直し、広告と実際の求人内容の一致度を高めてください。")
     
-    if not df_cluster.empty:
+    if not df_cluster.empty and 'cluster' in df_cluster.columns:
         report.append("2. クラスタ分析に基づいて広告戦略を最適化してください:")
-        for i in range(n_clusters):
+        # クラスタの数を取得
+        n_clusters_action = len(df_cluster['cluster'].unique())
+        
+        for i in range(n_clusters_action):
             try:
-                ctr_mean = cluster_stats.loc[i, ('CTR', 'mean')]
-                ar_mean = cluster_stats.loc[i, ('AR', 'mean')]
+                # クラスタデータの取得方法を調整
+                if hasattr(cluster_stats.index, 'levels'):
+                    ctr_mean = cluster_stats.loc[i, ('CTR', 'mean')]
+                    ar_mean = cluster_stats.loc[i, ('AR', 'mean')]
+                else:
+                    cluster_data = df_cluster[df_cluster['cluster'] == i]
+                    ctr_mean = cluster_data['CTR'].mean()
+                    ar_mean = cluster_data['AR'].mean()
+                    
                 ctr_level = "高い" if ctr_mean > df_cluster['CTR'].mean() else "低い"
                 ar_level = "高い" if ar_mean > df_cluster['AR'].mean() else "低い"
                 
