@@ -220,19 +220,20 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # CSVファイルを読み込み（同じタイトルの原稿をグループ化して平均化）
-            df = parse_csv_from_upload(uploaded_file, group_by_title=True)
+            # 元のデータ（タイトルの重複あり）を読み込み
+            df_original = parse_csv_from_upload(uploaded_file, group_by_title=False)
+            
+            # タイトルをグループ化したデータも読み込み（データ概要タブ用）
+            df_grouped = parse_csv_from_upload(uploaded_file, group_by_title=True)
             
             # グループ化情報を表示
-            if hasattr(df, 'attrs') and 'original_rows' in df.attrs:
-                original_rows = df.attrs['original_rows']
-                grouped_rows = df.attrs['grouped_rows']
+            if hasattr(df_grouped, 'attrs') and 'original_rows' in df_grouped.attrs:
+                original_rows = df_grouped.attrs['original_rows']
+                grouped_rows = df_grouped.attrs['grouped_rows']
                 reduction = original_rows - grouped_rows
                 
                 if reduction > 0:
-                    st.success(f"{original_rows}件の原稿データを読み込み、同じタイトルの原稿を統合して{grouped_rows}件に集約しました。（{reduction}件削減）")
-                else:
-                    st.info(f"{original_rows}件の原稿データを読み込みました。同一タイトルの原稿はありませんでした。")
+                    st.success(f"{original_rows}件の原稿データを読み込みました。データ概要タブでは同じタイトルの原稿を統合して{grouped_rows}件で分析し、クラスタリングと回帰分析では元データ（{original_rows}件）をそのまま使用します。")
             
             # タブを作成
             tab1, tab2, tab3, tab4 = st.tabs(["データ概要", "クラスタリング分析", "回帰分析", "分析レポート"])
@@ -240,29 +241,29 @@ def main():
             with tab1:
                 # データの概要を表示
                 st.subheader("データの概要")
-                st.write(f"行数: {df.shape[0]}, 列数: {df.shape[1]}")
+                st.write(f"行数: {df_grouped.shape[0]}, 列数: {df_grouped.shape[1]}")
                 
                 # データプレビュー
-                st.write("データプレビュー:")
-                st.dataframe(df.head())
+                st.write("データプレビュー（同一タイトル統合済み）:")
+                st.dataframe(df_grouped.head())
                 
                 # 改善すべき原稿の総合的な分析
                 st.subheader("改善すべき原稿の分析")
                 
                 try:
                     # 必要なデータを生成
-                    problem_ads = detect_problem_ads(df)
+                    problem_ads = detect_problem_ads(df_grouped)
                     
                     # クリック率と応募率の平均値を計算して4象限に分類
-                    if 'CTR' in df.columns and 'AR' in df.columns and '求人タイトル' in df.columns:
-                        ctr_mean = df['CTR'].mean()
-                        ar_mean = df['AR'].mean()
+                    if 'CTR' in df_grouped.columns and 'AR' in df_grouped.columns and '求人タイトル' in df_grouped.columns:
+                        ctr_mean = df_grouped['CTR'].mean()
+                        ar_mean = df_grouped['AR'].mean()
                         
                         # 4つの象限に分類
-                        high_ctr_high_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] > ar_mean)]
-                        high_ctr_low_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] <= ar_mean)]
-                        low_ctr_high_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] > ar_mean)]
-                        low_ctr_low_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] <= ar_mean)]
+                        high_ctr_high_ar = df_grouped[(df_grouped['CTR'] > ctr_mean) & (df_grouped['AR'] > ar_mean)]
+                        high_ctr_low_ar = df_grouped[(df_grouped['CTR'] > ctr_mean) & (df_grouped['AR'] <= ar_mean)]
+                        low_ctr_high_ar = df_grouped[(df_grouped['CTR'] <= ctr_mean) & (df_grouped['AR'] > ar_mean)]
+                        low_ctr_low_ar = df_grouped[(df_grouped['CTR'] <= ctr_mean) & (df_grouped['AR'] <= ar_mean)]
                         
                         # 修正が必要な原稿（高CTR低AR、低CTR高AR、低CTR低AR）を統合
                         need_improvement = pd.concat([high_ctr_low_ar, low_ctr_high_ar, low_ctr_low_ar])
@@ -328,7 +329,7 @@ def main():
                 
                 # 1. クリック率高 & 応募率低の原稿検出（既存の検出方法も残す）
                 with st.expander("クリック率高 & 応募率低の原稿検出（従来の方法）"):
-                    problem_ads = detect_problem_ads(df)
+                    problem_ads = detect_problem_ads(df_grouped)
                     
                     if not problem_ads.empty:
                         st.write("以下の原稿はクリック率が高いにも関わらず応募率が低い傾向があります（従来の分析方法では）:")
@@ -341,8 +342,8 @@ def main():
                 # 2. CTR vs AR 散布図 & KMeansクラスタリング
                 st.subheader("クリック率 vs 応募率分析")
                 
-                # クラスタリング実行
-                df_cluster, kmeans = perform_kmeans_clustering(df, n_clusters=n_clusters)
+                # クラスタリング実行（元データを使用）
+                df_cluster, kmeans = perform_kmeans_clustering(df_original, n_clusters=n_clusters)
                 
                 if not df_cluster.empty:
                     # 散布図を表示
@@ -515,9 +516,9 @@ def main():
                 st.subheader(f"回帰分析 (目的変数: {target_col})")
                 
                 try:
-                    # 最適な回帰モデルを探索
+                    # 最適な回帰モデルを探索（元データを使用）
                     best_feats, best_r2, ols_model, X_test, y_test, y_pred = find_best_regression(
-                        df, target_col=target_col, test_size=test_size
+                        df_original, target_col=target_col, test_size=test_size
                     )
                     
                     # 結果表示
@@ -586,12 +587,12 @@ def main():
                 
                 # 変数の準備
                 try:
-                    problem_ads = detect_problem_ads(df)
+                    problem_ads = detect_problem_ads(df_grouped)
                 except:
                     problem_ads = pd.DataFrame()
                     
                 try:
-                    df_cluster, kmeans = perform_kmeans_clustering(df, n_clusters=n_clusters)
+                    df_cluster, kmeans = perform_kmeans_clustering(df_original, n_clusters=n_clusters)
                     cluster_stats = df_cluster.groupby('cluster')[['CTR', 'AR']].agg(['mean', 'std', 'min', 'max'])
                 except:
                     df_cluster = pd.DataFrame()
@@ -599,7 +600,7 @@ def main():
                 
                 try:
                     best_feats, best_r2, ols_model, X_test, y_test, y_pred = find_best_regression(
-                        df, target_col=target_col, test_size=test_size
+                        df_original, target_col=target_col, test_size=test_size
                     )
                     coef_df, stats_df = show_regression_summary(ols_model, best_feats, best_r2)
                     vif_df = compute_vif(X_test)
@@ -611,7 +612,7 @@ def main():
                 
                 # レポート生成
                 report = generate_analysis_report(
-                    df, problem_ads, df_cluster, cluster_stats,
+                    df_grouped, problem_ads, df_cluster, cluster_stats,
                     best_feats, best_r2, coef_df, vif_df
                 )
                 
