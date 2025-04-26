@@ -1,4 +1,22 @@
 [project]
+[tool.poetry]
+name = "my-streamlit-app"
+version = "0.1.0"
+description = "Streamlitによる求人広告分析アプリ"
+authors = ["あなたの名前 <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+streamlit = "^1.25.0"
+pandas = "^1.5.3"
+numpy = "^1.25.0"
+matplotlib = "^3.7.1"
+# ここに他の依存パッケージを列挙
+
+[tool.poetry.dev-dependencies]
+# テスト用ライブラリなど
+pytest = "^7.2.0"
+
 name = "repl-nix-workspace"
 version = "0.1.0"
 description = "Add your description here"
