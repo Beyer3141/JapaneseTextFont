@@ -276,16 +276,79 @@ def main():
                             
                             if ctr_level == "高い" and ar_level == "高い":
                                 evaluation = "非常に優れた広告グループです。広告内容と求人内容の一致度が高いと考えられます。"
+                                advice = "このグループの広告戦略を他のグループにも応用してください。予算配分を増やすことも検討してください。"
                             elif ctr_level == "高い" and ar_level == "低い":
                                 evaluation = "改善が必要なグループです。広告と実際の求人内容に乖離がある可能性があります。"
+                                advice = "応募プロセスや求人内容を改善してください。広告の内容と実際の求人条件の一致度を高めることが重要です。"
                             elif ctr_level == "低い" and ar_level == "高い":
                                 evaluation = "効率的なグループです。ターゲットが絞られていると言えます。"
+                                advice = "広告タイトルの改善によりクリック率を向上させることで、より多くの応募が期待できます。"
                             else:
                                 evaluation = "全体的な見直しが必要なグループです。"
+                                advice = "広告内容、ターゲティング、求人内容の全体的な見直しが必要です。"
                                 
                             st.info(f"**クラスタ{i+1}**: クリック率{ctr_mean:.2%}({ctr_level})、応募率{ar_mean:.2%}({ar_level}) - {evaluation}")
-                        except:
-                            st.warning(f"クラスタ{i+1}のデータが不足しています。")
+                            st.markdown(f"**改善提案**: {advice}")
+                            
+                            # クラスタに属する原稿のタイトルを表示
+                            if '求人タイトル' in df_cluster.columns:
+                                cluster_titles = df_cluster[df_cluster['cluster'] == i]['求人タイトル'].tolist()
+                                if cluster_titles:
+                                    with st.expander(f"クラスタ{i+1}に属する原稿 ({len(cluster_titles)}件)"):
+                                        st.write("このクラスタに属する原稿タイトル:")
+                                        for idx, title in enumerate(cluster_titles):
+                                            st.write(f"{idx+1}. {title}")
+                        except Exception as e:
+                            st.warning(f"クラスタ{i+1}のデータ処理中にエラーが発生しました: {str(e)}")
+                    
+                    # クリック率と応募率の4象限分析
+                    st.subheader("クリック率・応募率による4象限分析")
+                    
+                    if '求人タイトル' in df_cluster.columns:
+                        # 平均値を基準に4つのグループに分類
+                        ctr_mean = df_cluster['CTR'].mean()
+                        ar_mean = df_cluster['AR'].mean()
+                        
+                        # 4つの象限に分類
+                        high_ctr_high_ar = df_cluster[(df_cluster['CTR'] > ctr_mean) & (df_cluster['AR'] > ar_mean)]
+                        high_ctr_low_ar = df_cluster[(df_cluster['CTR'] > ctr_mean) & (df_cluster['AR'] <= ar_mean)]
+                        low_ctr_high_ar = df_cluster[(df_cluster['CTR'] <= ctr_mean) & (df_cluster['AR'] > ar_mean)]
+                        low_ctr_low_ar = df_cluster[(df_cluster['CTR'] <= ctr_mean) & (df_cluster['AR'] <= ar_mean)]
+                        
+                        # 各象限の原稿を表示
+                        cols = st.columns(2)
+                        
+                        with cols[0]:
+                            with st.expander(f"クリック率高・応募率高 ({len(high_ctr_high_ar)}件) - 優秀広告", expanded=True):
+                                st.markdown("**評価**: 最も効果的な広告グループです。広告内容と求人内容の一致度が高く、ターゲットユーザーに適切にアピールできています。")
+                                st.markdown("**対策**: このグループの広告戦略を他の広告にも応用し、予算配分を増やすことを検討してください。")
+                                st.write("所属する原稿:")
+                                for idx, row in high_ctr_high_ar.iterrows():
+                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                            
+                            with st.expander(f"クリック率低・応募率高 ({len(low_ctr_high_ar)}件) - タイトル改善が必要", expanded=True):
+                                st.markdown("**評価**: 求人内容自体は魅力的ですが、広告タイトルや表現が魅力的でない可能性があります。")
+                                st.markdown("**対策**: 広告タイトルを改善し、より魅力的なキーワードや表現を使用してクリック率を向上させることが重要です。")
+                                st.write("所属する原稿:")
+                                for idx, row in low_ctr_high_ar.iterrows():
+                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                        
+                        with cols[1]:
+                            with st.expander(f"クリック率高・応募率低 ({len(high_ctr_low_ar)}件) - 内容改善が必要", expanded=True):
+                                st.markdown("**評価**: 広告は注目を集めていますが、実際の求人内容やプロセスに問題がある可能性があります。")
+                                st.markdown("**対策**: 応募プロセスを簡素化し、広告内容と実際の求人条件の一致度を高めることが重要です。")
+                                st.write("所属する原稿:")
+                                for idx, row in high_ctr_low_ar.iterrows():
+                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                            
+                            with st.expander(f"クリック率低・応募率低 ({len(low_ctr_low_ar)}件) - 全面的な見直しが必要", expanded=True):
+                                st.markdown("**評価**: 広告の魅力も求人内容も十分ではない可能性があります。")
+                                st.markdown("**対策**: 広告内容、ターゲティング、求人内容の全体的な見直しが必要です。競合他社の成功事例を参考にしてください。")
+                                st.write("所属する原稿:")
+                                for idx, row in low_ctr_low_ar.iterrows():
+                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                    else:
+                        st.warning("求人タイトルのデータがないため、詳細な分析ができません。")
                 else:
                     st.warning("クリック率またはクリック率のデータが不足しているため、クラスタリングを実行できません。")
             
