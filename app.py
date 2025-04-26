@@ -235,16 +235,96 @@ def main():
                 st.write("データプレビュー:")
                 st.dataframe(df.head())
                 
-                # 1. クリック率高 & 応募率低の原稿検出
-                st.subheader("クリック率高 & 応募率低の原稿検出")
-                problem_ads = detect_problem_ads(df)
+                # 改善すべき原稿の総合的な分析
+                st.subheader("改善すべき原稿の分析")
                 
-                if not problem_ads.empty:
-                    st.write("以下の原稿はクリック率が高いにも関わらず応募率が低い傾向があります:")
-                    st.dataframe(problem_ads)
-                    st.info("これらの原稿は、ユーザーの興味を引くものの、実際には応募に結びついていません。内容の見直しを検討してください。")
-                else:
-                    st.success("クリック率高 & 応募率低の原稿は検出されませんでした。広告と内容のバランスが取れていると言えます。")
+                try:
+                    # 必要なデータを生成
+                    problem_ads = detect_problem_ads(df)
+                    
+                    # クリック率と応募率の平均値を計算して4象限に分類
+                    if 'CTR' in df.columns and 'AR' in df.columns and '求人タイトル' in df.columns:
+                        ctr_mean = df['CTR'].mean()
+                        ar_mean = df['AR'].mean()
+                        
+                        # 4つの象限に分類
+                        high_ctr_high_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] > ar_mean)]
+                        high_ctr_low_ar = df[(df['CTR'] > ctr_mean) & (df['AR'] <= ar_mean)]
+                        low_ctr_high_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] > ar_mean)]
+                        low_ctr_low_ar = df[(df['CTR'] <= ctr_mean) & (df['AR'] <= ar_mean)]
+                        
+                        # 修正が必要な原稿（高CTR低AR、低CTR高AR、低CTR低AR）を統合
+                        need_improvement = pd.concat([high_ctr_low_ar, low_ctr_high_ar, low_ctr_low_ar])
+                        
+                        # 重複を削除し、タイトルでソート
+                        if not need_improvement.empty:
+                            need_improvement = need_improvement.drop_duplicates(subset=['求人タイトル'])
+                            need_improvement = need_improvement.sort_values('求人タイトル')
+                            
+                            # タイプ別にラベル付け
+                            def get_type(row):
+                                if row['CTR'] > ctr_mean and row['AR'] <= ar_mean:
+                                    return "クリック率高・応募率低（内容改善が必要）"
+                                elif row['CTR'] <= ctr_mean and row['AR'] > ar_mean:
+                                    return "クリック率低・応募率高（タイトル改善が必要）"
+                                else:
+                                    return "クリック率低・応募率低（全面的な見直しが必要）"
+                            
+                            need_improvement['改善タイプ'] = need_improvement.apply(get_type, axis=1)
+                            
+                            # 表示
+                            st.write(f"以下の{len(need_improvement)}件の原稿は改善が必要と分析されました:")
+                            
+                            # 改善タイプでグループ化して集計
+                            improvement_counts = need_improvement['改善タイプ'].value_counts().reset_index()
+                            improvement_counts.columns = ['改善タイプ', '件数']
+                            
+                            # グラフ化
+                            fig, ax = plt.subplots(figsize=(10, 4))
+                            bars = ax.bar(improvement_counts['改善タイプ'], improvement_counts['件数'], color=['orange', 'blue', 'red'])
+                            ax.set_ylabel('原稿数')
+                            ax.set_title('改善が必要な原稿タイプの内訳')
+                            plt.xticks(rotation=15, ha='right')
+                            
+                            # 棒グラフの上に数値を表示
+                            for bar in bars:
+                                height = bar.get_height()
+                                ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                                        f'{height:.0f}',
+                                        ha='center', va='bottom')
+                            
+                            plt.tight_layout()
+                            st.pyplot(fig)
+                            
+                            # タイプ別に表示
+                            st.write("**改善が必要な原稿のリスト:**")
+                            for type_name, group in need_improvement.groupby('改善タイプ'):
+                                with st.expander(f"{type_name} ({len(group)}件)", expanded=True):
+                                    for idx, row in group.iterrows():
+                                        st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                                    
+                                    if type_name == "クリック率高・応募率低（内容改善が必要）":
+                                        st.info("**改善提案**: 広告内容と実際の求人条件のギャップを埋め、応募プロセスを簡素化することを検討してください。")
+                                    elif type_name == "クリック率低・応募率高（タイトル改善が必要）":
+                                        st.info("**改善提案**: 広告タイトルをより魅力的にし、ターゲットユーザーの関心を引くキーワードを活用してください。")
+                                    else:
+                                        st.info("**改善提案**: 広告内容、ターゲティング、求人内容の全面的な見直しが必要です。競合他社の成功事例を参考にしてください。")
+                        else:
+                            st.success("分析の結果、特に改善が必要な原稿は検出されませんでした。")
+                    
+                except Exception as e:
+                    st.error(f"分析中にエラーが発生しました: {str(e)}")
+                
+                # 1. クリック率高 & 応募率低の原稿検出（既存の検出方法も残す）
+                with st.expander("クリック率高 & 応募率低の原稿検出（従来の方法）"):
+                    problem_ads = detect_problem_ads(df)
+                    
+                    if not problem_ads.empty:
+                        st.write("以下の原稿はクリック率が高いにも関わらず応募率が低い傾向があります（従来の分析方法では）:")
+                        st.dataframe(problem_ads)
+                        st.info("これらの原稿は、ユーザーの興味を引くものの、実際には応募に結びついていません。内容の見直しを検討してください。")
+                    else:
+                        st.success("クリック率高 & 応募率低の原稿は検出されませんでした。広告と内容のバランスが取れていると言えます。")
             
             with tab2:    
                 # 2. CTR vs AR 散布図 & KMeansクラスタリング
@@ -315,38 +395,105 @@ def main():
                         low_ctr_high_ar = df_cluster[(df_cluster['CTR'] <= ctr_mean) & (df_cluster['AR'] > ar_mean)]
                         low_ctr_low_ar = df_cluster[(df_cluster['CTR'] <= ctr_mean) & (df_cluster['AR'] <= ar_mean)]
                         
+                        # グラフ表示
+                        fig, ax = plt.subplots(figsize=(10, 8))
+                        
+                        # 散布図のプロット
+                        ax.scatter(high_ctr_high_ar['CTR'], high_ctr_high_ar['AR'], 
+                                   c='green', alpha=0.7, label='高CTR・高AR (優秀広告)')
+                        ax.scatter(high_ctr_low_ar['CTR'], high_ctr_low_ar['AR'], 
+                                   c='orange', alpha=0.7, label='高CTR・低AR (内容改善)')
+                        ax.scatter(low_ctr_high_ar['CTR'], low_ctr_high_ar['AR'], 
+                                   c='blue', alpha=0.7, label='低CTR・高AR (タイトル改善)')
+                        ax.scatter(low_ctr_low_ar['CTR'], low_ctr_low_ar['AR'], 
+                                   c='red', alpha=0.7, label='低CTR・低AR (全面見直し)')
+                        
+                        # 平均値の線
+                        ax.axvline(x=ctr_mean, color='gray', linestyle='--', alpha=0.5)
+                        ax.axhline(y=ar_mean, color='gray', linestyle='--', alpha=0.5)
+                        
+                        # グラフの設定
+                        ax.set_xlabel('クリック率 (CTR)', fontsize=12)
+                        ax.set_ylabel('応募率 (AR)', fontsize=12)
+                        ax.set_title('クリック率と応募率の4象限分析', fontsize=14)
+                        ax.grid(True, alpha=0.3)
+                        ax.legend()
+                        
+                        # テキスト表示
+                        ax.text(df_cluster['CTR'].max() * 0.9, df_cluster['AR'].min() * 1.1, 
+                                f'平均CTR: {ctr_mean:.2%}\n平均AR: {ar_mean:.2%}', 
+                                bbox=dict(facecolor='white', alpha=0.7))
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig)
+                        
+                        # 象限ごとの件数表示
+                        counts = [
+                            len(high_ctr_high_ar),
+                            len(high_ctr_low_ar),
+                            len(low_ctr_high_ar),
+                            len(low_ctr_low_ar)
+                        ]
+                        labels = [
+                            '高CTR・高AR\n(優秀広告)', 
+                            '高CTR・低AR\n(内容改善)', 
+                            '低CTR・高AR\n(タイトル改善)', 
+                            '低CTR・低AR\n(全面見直し)'
+                        ]
+                        colors = ['green', 'orange', 'blue', 'red']
+                        
+                        fig2, ax2 = plt.subplots(figsize=(10, 4))
+                        bars = ax2.bar(labels, counts, color=colors)
+                        ax2.set_ylabel('原稿数')
+                        ax2.set_title('4象限別の原稿数')
+                        
+                        # 棒グラフの上に数値を表示
+                        for bar in bars:
+                            height = bar.get_height()
+                            ax2.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                                    f'{height:.0f}',
+                                    ha='center', va='bottom')
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig2)
+                        
                         # 各象限の原稿を表示
+                        st.write("### 4象限別の原稿リスト")
                         cols = st.columns(2)
                         
                         with cols[0]:
-                            with st.expander(f"クリック率高・応募率高 ({len(high_ctr_high_ar)}件) - 優秀広告", expanded=True):
+                            with st.expander(f"高CTR・高AR ({len(high_ctr_high_ar)}件) - 優秀広告", expanded=False):
                                 st.markdown("**評価**: 最も効果的な広告グループです。広告内容と求人内容の一致度が高く、ターゲットユーザーに適切にアピールできています。")
                                 st.markdown("**対策**: このグループの広告戦略を他の広告にも応用し、予算配分を増やすことを検討してください。")
-                                st.write("所属する原稿:")
-                                for idx, row in high_ctr_high_ar.iterrows():
-                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                                if len(high_ctr_high_ar) > 0:
+                                    st.write("所属する原稿:")
+                                    for idx, row in high_ctr_high_ar.iterrows():
+                                        st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
                             
-                            with st.expander(f"クリック率低・応募率高 ({len(low_ctr_high_ar)}件) - タイトル改善が必要", expanded=True):
+                            with st.expander(f"低CTR・高AR ({len(low_ctr_high_ar)}件) - タイトル改善が必要", expanded=True):
                                 st.markdown("**評価**: 求人内容自体は魅力的ですが、広告タイトルや表現が魅力的でない可能性があります。")
                                 st.markdown("**対策**: 広告タイトルを改善し、より魅力的なキーワードや表現を使用してクリック率を向上させることが重要です。")
-                                st.write("所属する原稿:")
-                                for idx, row in low_ctr_high_ar.iterrows():
-                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                                if len(low_ctr_high_ar) > 0:
+                                    st.write("所属する原稿:")
+                                    for idx, row in low_ctr_high_ar.iterrows():
+                                        st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
                         
                         with cols[1]:
-                            with st.expander(f"クリック率高・応募率低 ({len(high_ctr_low_ar)}件) - 内容改善が必要", expanded=True):
+                            with st.expander(f"高CTR・低AR ({len(high_ctr_low_ar)}件) - 内容改善が必要", expanded=True):
                                 st.markdown("**評価**: 広告は注目を集めていますが、実際の求人内容やプロセスに問題がある可能性があります。")
                                 st.markdown("**対策**: 応募プロセスを簡素化し、広告内容と実際の求人条件の一致度を高めることが重要です。")
-                                st.write("所属する原稿:")
-                                for idx, row in high_ctr_low_ar.iterrows():
-                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                                if len(high_ctr_low_ar) > 0:
+                                    st.write("所属する原稿:")
+                                    for idx, row in high_ctr_low_ar.iterrows():
+                                        st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
                             
-                            with st.expander(f"クリック率低・応募率低 ({len(low_ctr_low_ar)}件) - 全面的な見直しが必要", expanded=True):
+                            with st.expander(f"低CTR・低AR ({len(low_ctr_low_ar)}件) - 全面的な見直しが必要", expanded=True):
                                 st.markdown("**評価**: 広告の魅力も求人内容も十分ではない可能性があります。")
                                 st.markdown("**対策**: 広告内容、ターゲティング、求人内容の全体的な見直しが必要です。競合他社の成功事例を参考にしてください。")
-                                st.write("所属する原稿:")
-                                for idx, row in low_ctr_low_ar.iterrows():
-                                    st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
+                                if len(low_ctr_low_ar) > 0:
+                                    st.write("所属する原稿:")
+                                    for idx, row in low_ctr_low_ar.iterrows():
+                                        st.write(f"- {row['求人タイトル']} (CTR: {row['CTR']:.2%}, AR: {row['AR']:.2%})")
                     else:
                         st.warning("求人タイトルのデータがないため、詳細な分析ができません。")
                 else:
