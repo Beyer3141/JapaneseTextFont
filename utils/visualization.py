@@ -15,12 +15,32 @@ def setup_japanese_fonts():
     """
     日本語フォントをグローバルに設定
     """
-    # 日本語フォントをセットアップ（Streamlit環境用）
-    plt.rcParams['font.family'] = ['IPAexGothic', 'IPAGothic', 'Yu Gothic', 'Meiryo', 'sans-serif']
+    import os
+    import matplotlib.font_manager as fm
+    
+    # IPAフォントのパスを指定
+    font_path = '/nix/store/40bl0ak5c34661bn0g6sva7p03nry12j-ipafont-003.03/share/fonts/opentype/ipag.ttf'
+    
+    # フォントパスが存在するか確認
+    if os.path.exists(font_path):
+        # フォントファミリーの設定
+        fm.fontManager.addfont(font_path)
+        plt.rcParams['font.family'] = 'IPAGothic'
+    else:
+        # フォールバック設定
+        plt.rcParams['font.family'] = ['sans-serif']
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica', 'sans-serif']
+    
+    # その他の設定
     plt.rcParams['mathtext.fontset'] = 'stix'
     plt.rcParams['font.size'] = 12
     plt.rcParams['axes.unicode_minus'] = False
     plt.rcParams['figure.figsize'] = [10, 6]
+    
+    # 警告を抑制
+    import warnings
+    warnings.filterwarnings("ignore", message=".*findfont: Font family.*", module="matplotlib.font_manager")
+    warnings.filterwarnings("ignore", message=".*Glyph.*missing.*", category=UserWarning)
     
     # Streamlit環境で日本語フォントを使用するための追加設定
     try:
