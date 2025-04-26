@@ -220,8 +220,19 @@ def main():
     
     if uploaded_file is not None:
         try:
-            # CSVファイルを読み込み
-            df = parse_csv_from_upload(uploaded_file)
+            # CSVファイルを読み込み（同じタイトルの原稿をグループ化して平均化）
+            df = parse_csv_from_upload(uploaded_file, group_by_title=True)
+            
+            # グループ化情報を表示
+            if hasattr(df, 'attrs') and 'original_rows' in df.attrs:
+                original_rows = df.attrs['original_rows']
+                grouped_rows = df.attrs['grouped_rows']
+                reduction = original_rows - grouped_rows
+                
+                if reduction > 0:
+                    st.success(f"{original_rows}件の原稿データを読み込み、同じタイトルの原稿を統合して{grouped_rows}件に集約しました。（{reduction}件削減）")
+                else:
+                    st.info(f"{original_rows}件の原稿データを読み込みました。同一タイトルの原稿はありませんでした。")
             
             # タブを作成
             tab1, tab2, tab3, tab4 = st.tabs(["データ概要", "クラスタリング分析", "回帰分析", "分析レポート"])

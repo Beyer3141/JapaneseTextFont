@@ -76,26 +76,74 @@ def detect_problem_ads(df: pd.DataFrame) -> pd.DataFrame:
             
     return pd.DataFrame()
 
-def parse_csv_from_upload(uploaded_file) -> pd.DataFrame:
+def parse_csv_from_upload(uploaded_file, group_by_title=True) -> pd.DataFrame:
     """
-    アップロードされたCSVファイルをデータフレームに変換
+    アップロードされたCSVファイルをデータフレームに変換し、
+    オプションで同じ求人タイトルのデータをグループ化して平均化
     
     Args:
         uploaded_file: Streamlitでアップロードされたファイル
+        group_by_title: 同じタイトルの原稿をグループ化して平均化するかどうか（デフォルト：True）
         
     Returns:
         読み込まれたデータフレーム
     """
     try:
-        return pd.read_csv(uploaded_file, encoding='utf-8')
-    except UnicodeDecodeError:
-        # UTF-8でエラーが出たら他のエンコーディングを試す
+        # まずファイルを読み込む
         try:
-            return pd.read_csv(uploaded_file, encoding='shift-jis')
+            df = pd.read_csv(uploaded_file, encoding='utf-8')
         except UnicodeDecodeError:
+            # UTF-8でエラーが出たら他のエンコーディングを試す
             try:
-                return pd.read_csv(uploaded_file, encoding='cp932')
-            except:
-                raise ValueError("ファイルのエンコーディングが認識できません。UTF-8、SHIFT-JIS、CP932のいずれかでエンコードしてください。")
+                df = pd.read_csv(uploaded_file, encoding='shift-jis')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='cp932')
+                except:
+                    raise ValueError("ファイルのエンコーディングが認識できません。UTF-8、SHIFT-JIS、CP932のいずれかでエンコードしてください。")
+        
+        # パーセント表記を数値に変換
+        df = convert_percentage_columns(df)
+        
+        # 同じタイトルの原稿をまとめる（オプション）
+        if group_by_title and '求人タイトル' in df.columns:
+            # グループ化する前に情報を表示するために元のデータフレームの行数を保存
+            original_rows = len(df)
+            
+            # 数値列のリスト
+            numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+            
+            # グループ化して数値列の平均を計算
+            grouped_df = df.groupby('求人タイトル')[numeric_cols].mean().reset_index()
+            
+            # カテゴリカル列（文字列列）のリスト
+            categorical_cols = [col for col in df.columns 
+                              if col not in numeric_cols 
+                              and col != '求人タイトル' 
+                              and df[col].dtype == 'object']
+            
+            # 最頻値を取得してグループ化データフレームに追加
+            for col in categorical_cols:
+                # 各グループごとに最頻値を計算
+                mode_values = {}
+                for title, group in df.groupby('求人タイトル'):
+                    mode_val = group[col].mode()
+                    mode_values[title] = mode_val.iloc[0] if not mode_val.empty else None
+                
+                # 値を設定
+                grouped_df[col] = grouped_df['求人タイトル'].map(mode_values)
+            
+            # 前処理を適用
+            processed_df = preprocess_data(grouped_df)
+            
+            # 元の行数とグループ化後の行数の情報を属性として追加
+            processed_df.attrs['original_rows'] = original_rows
+            processed_df.attrs['grouped_rows'] = len(processed_df)
+            
+            return processed_df
+        
+        # グループ化しない場合は通常の前処理を適用
+        return preprocess_data(df)
+        
     except Exception as e:
         raise ValueError(f"ファイルの読み込みエラー: {str(e)}")
