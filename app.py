@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import os
+import io
 import sys
 import io
 import json
@@ -220,11 +221,18 @@ def main():
     
     if uploaded_file is not None:
         try:
+            # ファイルを読み込む前にバッファーに保存して、複数回使えるようにする
+            file_content = uploaded_file.read()
+            
             # 元のデータ（タイトルの重複あり）を読み込み
-            df_original = parse_csv_from_upload(uploaded_file, group_by_title=False)
+            uploaded_file_copy1 = io.BytesIO(file_content)
+            uploaded_file_copy1.name = uploaded_file.name
+            df_original = parse_csv_from_upload(uploaded_file_copy1, group_by_title=False)
             
             # タイトルをグループ化したデータも読み込み（データ概要タブ用）
-            df_grouped = parse_csv_from_upload(uploaded_file, group_by_title=True)
+            uploaded_file_copy2 = io.BytesIO(file_content)
+            uploaded_file_copy2.name = uploaded_file.name
+            df_grouped = parse_csv_from_upload(uploaded_file_copy2, group_by_title=True)
             
             # グループ化情報を表示
             if hasattr(df_grouped, 'attrs') and 'original_rows' in df_grouped.attrs:
