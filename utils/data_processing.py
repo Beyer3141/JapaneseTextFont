@@ -26,6 +26,13 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     for c in ['勤務地', 'キャンペーン名']:
         if c in df.columns:
             df = pd.get_dummies(df, columns=[c], drop_first=True)
+
+     # ← ここから追加 ↓
+    # 「クリック数」と「費用」を文字列から数値へ強制変換
+    for c in ['クリック数', '費用']:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors='coerce')
+    # ここまで追加 ↑
     
     # 数値変数の対数変換（クリック数, 費用）
     for c in ['クリック数', '費用']:
